@@ -1,0 +1,233 @@
+<%- | String $name,
+      String $description,
+      String $notifyOperator = "",
+      Array[Hash] $steps,
+      Any $schedules = undef
+| -%>
+
+<% 
+  #https://msdn.microsoft.com/en-us/library/ms187358.aspx
+  # steps Array[Hash] - [{ 
+  #name               => String - The name of the job step
+  #command            => String - The T-SQL to execute
+  #database           => String - The name of the database to execute against if the subsystem is TSQL.
+  #onSuccess          => Integer - 3(next)|2(quitfail)|1(quitsuccess)|4(gotostep), default is 1 
+  #onFail             => Integer - 3(next)|2(quitfail)|1(quitsuccess)|4(gotostep), default is 2
+  #onSuccessStepId    => Integer - The stepid to go to on success
+  #onFailStepId       => Integer - The stepid to to go in failure
+  #subsystem          => String - Specify either "TSQL" or "CmdExec".  Default is TSQL.
+  #outputFileName     => String - Specify the path to the file to write the output to.
+#},...] 
+-%>
+<% 
+  #https://msdn.microsoft.com/en-us/library/ms366342.aspx
+  # schedules Hash (optional) - { 
+  #frequencyType                => Integer - 1(once)|4(daily)|8(weekly)|16(monthly), default 4
+  #frequencyInterval            => Integer - 1(once)|4(daily)|8(weekly)|16(monthly), default 1
+  #frequencySubdayType          => Integer - 1(attime)|4(minutes)|8(hours), default 1
+  #frequencySubdayInterval      => Integer - number of minutes/hours
+  #frequencyRecurrenceFactor    => Integer - Number of weeks/months between exectutions.  Nonzero value required if frequencytype is 8|16|32 (not used otherwise).  Default is 0.
+  #activeStartTime => "HHMMSS, default 0", 
+  #activeEndTime => "HHMMSS, default 235959"   
+ #} 
+-%>
+BEGIN TRANSACTION
+  BEGIN TRY
+
+    DECLARE @ReturnCode INT
+    SELECT @ReturnCode = 0
+    IF NOT EXISTS (SELECT name FROM msdb.dbo.syscategories WHERE name=N'[Uncategorized (Local)]' AND category_class=1)
+    BEGIN
+      EXEC @ReturnCode = msdb.dbo.sp_add_category @class=N'JOB', @type=N'LOCAL', @name=N'[Uncategorized (Local)]';
+      IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+    END;
+    
+    IF NOT EXISTS ( SELECT name FROM msdb.dbo.sysjobs WHERE name=N'<%= $name -%>' ) 
+    BEGIN
+      DECLARE @jobId BINARY(16)
+      EXEC @ReturnCode =  msdb.dbo.sp_add_job @job_name=N'<%= $name -%>', 
+          @enabled=1, 
+          @notify_level_eventlog=0, 
+          @notify_level_email=3, 
+          @notify_level_netsend=0, 
+          @notify_level_page=0, 
+          @delete_level=0, 
+          @description=N'<%= $description -%>', 
+          @category_name=N'[Uncategorized (Local)]', 
+          @owner_login_name=N'sa', 
+          <% if $notifyOperator != "" { %>    
+          @notify_email_operator_name=N'<%= $notifyOperator -%>', 
+          <% } -%>
+          @job_id = @jobId OUTPUT
+      IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+      
+      <% $steps.each | $stepDef | { 
+        if ( $stepDef["onSuccess"] != undef )
+        {
+          $onSuccess = $stepDef["onSuccess"]
+        }
+        else
+        {
+          $onSuccess = 1
+        }
+
+        if ( $stepDef["onSuccessStepId"] != undef )
+        {
+          $onSuccessStepId = $stepDef["onSuccessStepId"]
+        }
+        else
+        {
+          $onSuccessStepId = 0
+        }
+
+        if ( $stepDef["onFail"] != undef )
+        {
+          $onFail = $stepDef["onFail"]
+        }
+        else
+        {
+          $onFail = 2
+        }
+
+        if ( $stepDef["onFailStepId"] != undef )
+        {
+          $onFailStepId = $stepDef["onFailStepId"]
+        }
+        else
+        {
+          $onFailStepId = 0
+        }
+
+        if ( $stepDef["subsystem"] != undef )
+        {
+          $subsystem = $stepDef["subsystem"]
+        }
+        else
+        {
+          $subsystem = "TSQL"
+        }
+
+        if ( $stepDef["outputFileName"] != undef )
+        {
+          $outputFileName = $stepDef["outputFileName"]
+        }
+        else
+        {
+          $outputFileName = ""
+        }
+      -%>
+      EXEC @ReturnCode = msdb.dbo.sp_add_jobstep @job_id=@jobId, @step_name=N'<%= $stepDef["name"] -%>',
+          <% if ( $stepDef["database"] != undef ) { -%> 
+          @database_name=N'<%= $stepDef["database"] -%>',
+          <% } -%>
+          @command=N'<%= $stepDef["command"] -%>', 
+          @on_success_action=<%= $onSuccess -%>, 
+          @on_success_step_id=<%= $onSuccessStepId -%>, 
+          @on_fail_action=<%= $onFail -%>, 
+          @on_fail_step_id=<%= $onFailStepId -%>, 
+          @retry_attempts=0, 
+          @retry_interval=0, 
+          @os_run_priority=0, 
+          @subsystem=N'<%= $subsystem -%>', 
+          @flags=0,
+          @output_file_name=N'<%= $outputFileName %>'
+      IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+      EXEC @ReturnCode = msdb.dbo.sp_update_job @job_id = @jobId, @start_step_id = 1
+      IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+      <% } -%>
+      <% 
+        if ( $schedules != undef )
+        {
+          if ( $schedules["frequencyType"] != undef )
+          {
+            $frequencyType = $schedules["frequencyType"]
+          }
+          else
+          {
+            $frequencyType = 4
+          }
+
+          if ( $schedules["frequencyInterval"] != undef )
+          {
+            $frequencyInterval = $schedules["frequencyInterval"]
+          }
+          else
+          {
+            $frequencyInterval = 1
+          }
+
+          if ( $schedules["frequencySubdayType"] != undef )
+          {
+            $frequencySubdayType = $schedules["frequencySubdayType"]
+          }
+          else
+          {
+            $frequencySubdayType = 1
+          }
+
+          if ( $schedules["frequencySubdayInterval"] != undef )
+          {
+            $frequencySubdayInterval = $schedules["frequencySubdayInterval"]
+          }
+          else
+          {
+            $frequencySubdayInterval = 0
+          }
+
+          if ( $schedules["activeStartTime"] != undef )
+          {
+            $activeStartTime = $schedules["activeStartTime"]
+          }
+          else
+          {
+            $activeStartTime = 0
+          }
+
+          if ( $schedules["activeEndTime"] != undef )
+          {
+            $activeEndTime = $schedules["activeEndTime"]
+          }
+          else
+          {
+            $activeEndTime = 235959
+          }
+
+          if ( $schedules["frequencyRecurrenceFactor"] != undef )
+          {
+            $frequencyRecurrenceFactor = $schedules["frequencyRecurrenceFactor"]
+          }
+          else
+          {
+            $frequencyRecurrenceFactor = 0
+          }
+      -%>
+      EXEC @ReturnCode = msdb.dbo.sp_add_jobschedule @job_id=@jobId, @name=N'<%= $name -%>', 
+          @enabled=1, 
+          @freq_type=<%= $frequencyType -%>,
+          @freq_interval=<%= $frequencyInterval -%>, 
+          @freq_subday_type=<%= $frequencySubdayType -%>, 
+          @freq_subday_interval=<%= $frequencySubdayInterval -%>, 
+          @freq_relative_interval=0, 
+          @freq_recurrence_factor=<%= $frequencyRecurrenceFactor -%>, 
+          @active_start_date=20100929, 
+          @active_end_date=99991231, 
+          @active_start_time=<%= $activeStartTime -%>, 
+          @active_end_time=<%= $activeEndTime -%>;
+      IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+      <% } -%>
+      EXEC @ReturnCode = msdb.dbo.sp_add_jobserver @job_id = @jobId, @server_name = N'(local)'
+      IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback
+    END;
+
+  COMMIT TRANSACTION
+  GOTO EndSave
+  QuitWithRollback:
+      IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION
+  EndSave:
+END TRY
+BEGIN CATCH
+  IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION;
+  DECLARE @msg AS VARCHAR(max);
+  SELECT @msg = ERROR_MESSAGE();
+  THROW 51000, @msg, 10
+END CATCH
