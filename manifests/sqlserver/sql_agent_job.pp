@@ -1,4 +1,4 @@
-class profile::sqlserver::sql_agent_job()
+class sqlserver::sql_agent_job()
 {
 
   define sql_agent_job
@@ -38,7 +38,7 @@ class profile::sqlserver::sql_agent_job()
 
     sqlserver_tsql { "${title}_${sqlInstanceName}_sql_agent_job" : 
       instance    => $sqlInstanceName,
-      command     => epp("profile/sqlserver/sql_add_job.epp", { 
+      command     => epp("sqlserver/sql_add_job.epp", { 
                         name            => $name, 
                         description     => $description,
                         notifyOperator  => $notifyOperator,
