@@ -1,4 +1,4 @@
-class profile::windows_server::scheduled_task()
+class windows_server::scheduled_task()
 {
   
   define windows_scheduled_task
@@ -31,7 +31,7 @@ class profile::windows_server::scheduled_task()
 
     #  If your command is a PowerShell script, you have to escape double-quotes with backslashes. 
     #  Example:
-    #  profile::windows_server::scheduled_task::windows_scheduled_task { 'Test Scheduled Task':
+    #  windows_server::scheduled_task::windows_scheduled_task { 'Test Scheduled Task':
     #   userName          =>  $taskCredentials['userName'],
     #   password          =>  $taskCredentials['password'],
     #   path              => '\MyTasks',
@@ -46,7 +46,7 @@ class profile::windows_server::scheduled_task()
     #}
 
     exec { "scheduled_task_${title}" :
-      command       => epp("profile/windows/scheduled_task_add.epp", {
+      command       => epp("windows_server/scheduled_task_add.epp", {
                         name                => $name,
                         description         => $description,
                         path                => $path,
