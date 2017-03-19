@@ -1,0 +1,127 @@
+<%- | String $name,
+      String $description = "No description",
+      String $path = "\\",
+      String $executionTimeLimit = "01.00:00:00",
+      String $userName = "NT AUTHORITY\\SYSTEM",
+      String $password = "",
+      Boolean $deployEnabled = true,
+      Array[Hash] $actions,
+      Array[Hash] $triggers = []     
+|
+  #  name (string) - Specifies the name of the task
+  #  description (string) - Specifies a description of the task
+  #  path (string) - Specifies the folder to place the task in.  Default is "\" (the root foler)
+  #  executionTimeLimit (string) - Specifies the length of time the task can run before being automatically stopped.  Specify as a TimeSpan.
+  #  userName (string) - Specifies the user to execute the task as.  Default is local system,.
+  #  password (string) - Specifies the password for the given user.  
+  #  actions (Hash[]) -
+  #    workingDirectory (string) - Specifies the working directory for the action.  Default is C:\windows\system32
+  #    command (string) - Specifies the command to execute.
+  #    arguments (string[]) - Specifies the arguments to pass to the command.
+  #    isPowerShell (bool) - If specified, then the command and arguments are automatically constructed.  You only need pass the powershell script you want to run for the command.
+
+  #  triggers (Hash[]) -
+  #    atDateTime (String) - Specifies the date and time to start running the task.
+  #    repetitionInterval (string) - For daily repetition - Specifies how often to re-run the task after the atDateTime occurs.  Specify as a Timespan.
+  #    repetitionDuration (string) - For daily repetition - Specifies how long to repeat the task executions for.  Specify as a Timespan.  Default is [Timespan]::MaxValue (forever)
+  #    daysOfTheWeek (Array[string]) - For weekly repetition - Specifies the days of the week to run the task.  Specify an array of Monday | Tuesday | Wednesday | Thursday | Friday | Saturday | Sunday
+  #    weeksInterval (Integer) - For weekly repetition - Specifies whether to run the schedule every week (value 1) or every n weeks (value n).  Default is every 1 week. 
+%>
+$acts = @();
+<% $actions.each | Hash $act | { -%>
+$arg = @();
+<%  if ( $act['isPowerShell'] )
+{
+  $cmd = "powershell.exe"
+-%>
+$arg += "-noprofile"
+$arg += "-command `"<%= regsubst($act['command'],'\"', '\\\`"', 'GI') -%>`""
+<% } 
+else 
+{
+  $cmd = $act['command']
+  if ( $act['arguments'] and is_array($act['arguments']) ) 
+  { 
+    $act['arguments'].each | String $ar | 
+    { -%>
+$arg += "<%= $ar -%>";
+<% 
+    } 
+  }
+  else 
+  { -%>
+$arg += "<%= $act['arguments'] -%>"
+<%}
+}
+if ( $act['workingDirectory'] )
+{
+  $wd = "-WorkingDirectory \"${act['workingDirectory']}\" "
+} 
+else
+{
+  $wd = ""
+} -%>  
+$params = @{}
+if ( $arg )
+{
+  $params.Add("Argument", ($arg -join " "))
+}
+
+$acts += New-ScheduledTaskAction <%= $wd -%>-Execute "<%= $cmd -%>" @params
+<% } -%>
+
+$params = @{};
+$trigs = @();
+<% $triggers.each | Hash $trig | 
+{
+  if ( $trig['weeksInterval'] or $trig['daysOfTheWeek'] )
+  {
+    #  Weekly Trigger:
+    if ( $trig['weeksInterval'] )
+    {
+      $weeksInterval = $trig['weeksInterval']
+    }
+    else
+    {
+      $weeksInterval = 1
+    }
+-%>
+$trigs += New-ScheduledTaskTrigger -Weekly -At "<%= $trig['atDateTime'] -%>" -WeeksInterval <%= $weeksInterval %> -DaysOfWeek <%= $trig['daysOfTheWeek'].join(",") %>;
+<%
+  }
+  else
+  {
+    if ( $trig['repetitionDuration'] )
+    { 
+      $repDuration = "<%= $trig['repetitionDuration'] -%>"
+    }
+    else 
+    {
+      $repDuration = "([TimeSpan]::MaxValue)"
+    } 
+#  Daily Trigger:
+-%>
+$trigs += New-ScheduledTaskTrigger -Once -At "<%= $trig['atDateTime'] -%>" -RepetitionInterval "<%= $trig['repetitionInterval'] -%>" -RepetitionDuration <%= $repDuration -%>;
+<% 
+  } 
+}
+-%>
+if ( $trigs )
+{
+  $params.Add("Trigger", $trigs);
+}
+
+<% if ( $path == "" )
+{
+  $taskPath = "\\" 
+} 
+else
+{
+  $taskPath = $path
+}
+-%>
+$sett = New-ScheduledTaskSettingsSet -ExecutionTimeLimit "<%= $executionTimeLimit -%>" -RunOnlyIfIdle:$false -DontStopOnIdleEnd;
+$task = Register-ScheduledTask -TaskName "<%= $name -%>" -TaskPath "<%= $taskPath -%>" -Action $acts -Force -User "<%= $userName -%>" -Settings $sett<% if ( $password != "" ) { %> -Password "<%= $password -%>"<% } %> -RunLevel Highest @params;
+<% if ( $deployEnabled == false ) { -%>
+$task = $task | Disable-ScheduledTask; 
+<% } -%>
