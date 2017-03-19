@@ -31,18 +31,18 @@ class profile::windows_server::scheduled_task()
 
     #  If your command is a PowerShell script, you have to escape double-quotes with backslashes. 
     #  Example:
-    #profile::windows::windows_server_2012::component::scheduled_task::windows_scheduled_task { 'SQL Data Update':
-    #  userName          =>  $taskCredentials['userName'],
-    #  password          =>  $taskCredentials['password'],
-    #  path              => '\Restore',
-    #  actions           => [{
+    #  profile::windows_server::scheduled_task::windows_scheduled_task { 'Test Scheduled Task':
+    #   userName          =>  $taskCredentials['userName'],
+    #   password          =>  $taskCredentials['password'],
+    #   path              => '\MyTasks',
+    #   actions           => [{
     #    isPowerShell        => true,
-    #    command             => "c:\\scripts\\New-DataRefreshSnapshot.ps1 -ArrayType xio -ArrayName \"${dataRefreshArray}\" -Volume ${dataRefreshVolume} -BackupFilePath @(\"${$backupFilePath.join('","')}\") -SqlServer \"${$trusted['hostname']}\\${sqlInstanceName}\" -Quiesce -LogFile \"c:\\scripts\\log\\new-datarefreshsnapshot_${sqlInstanceName}.log\" -LogDestination \"${logFileCopyDestination}\" "
-    #  }],
-    #  triggers              => [{
+    #    command             => "c:\\scripts\\Run-MyPowerShellScript.ps1 -Param1 value1 -Param2 \"value 2\" -Param3 ${puppetVariableHere}  "
+    #   }],
+    #   triggers              => [{
     #    atDateTime          => "9/1/2016 12:30 AM",
     #    repetitionInterval  => "00:30:00"
-    #  }],
+    #   }],
     #}
 
     exec { "scheduled_task_${title}" :
